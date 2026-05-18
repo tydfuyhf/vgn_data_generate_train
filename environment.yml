@@ -1,0 +1,26 @@
+name: vgn
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - tqdm
+  - tensorboard
+  - mpi4py
+  - openmpi
+  - pytorch
+  - torchvision
+  - pytorch-cuda=11.8
+  - pip:
+      - open3d==0.18.0
+      - pybullet
+      - pytorch-ignite
+      - catkin_pkg
