@@ -4,6 +4,120 @@ VGN is a 3D convolutional neural network for real-time 6 DOF grasp pose detectio
 
 ![overview](docs/overview.png)
 
+## RTX 3090 GPU Server Setup
+
+This fork is prepared for ROS-free VGN data generation and training. ROS is not required when only running:
+
+1. `scripts/generate_data.py`
+2. `scripts/construct_dataset.py`
+3. `scripts/train_vgn.py`
+
+Recommended server environment:
+
+```text
+GPU: NVIDIA RTX 3090
+Python: 3.10
+CUDA runtime for PyTorch: 11.8
+PyTorch: conda package with pytorch-cuda=11.8
+Open3D: 0.18.0
+```
+
+Create the conda environment:
+
+```bash
+conda env create -f environment.yml
+conda activate vgn
+pip install -e .
+```
+
+Verify CUDA and core dependencies:
+
+```bash
+python - <<'PY'
+import torch, open3d, pybullet
+print("torch:", torch.__version__)
+print("torch cuda:", torch.version.cuda)
+print("cuda available:", torch.cuda.is_available())
+print("gpu:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "none")
+print("open3d:", open3d.__version__)
+print("pybullet ok")
+PY
+```
+
+Generate a small sanity dataset first. By default this fork renders one top-like view and one EE-like oblique view per scene, then fuses both views into the TSDF during dataset construction.
+
+```bash
+python scripts/generate_data.py data/raw/paired_packed_sanity \
+  --scene packed \
+  --object-set packed/train \
+  --num-grasps 3000 \
+  --ee-phi-span-deg 90
+```
+
+If the actual wrist-camera scan yaw is known, prefer centering the EE-like yaw distribution around it:
+
+```bash
+python scripts/generate_data.py data/raw/paired_packed_sanity \
+  --scene packed \
+  --object-set packed/train \
+  --num-grasps 3000 \
+  --ee-phi-center-deg <actual_phi_deg> \
+  --ee-phi-span-deg 90
+```
+
+Construct the training dataset:
+
+```bash
+python scripts/construct_dataset.py \
+  data/raw/paired_packed_sanity \
+  data/datasets/paired_packed_sanity
+```
+
+Run a short training smoke test:
+
+```bash
+python scripts/train_vgn.py \
+  --dataset data/datasets/paired_packed_sanity \
+  --augment \
+  --epochs 5 \
+  --batch-size 32
+```
+
+For a larger data generation run, use CPU parallelism with MPI. The RTX 3090 is mainly used during `train_vgn.py`; PyBullet data generation is CPU-bound.
+
+```bash
+mpirun -np 8 python scripts/generate_data.py data/raw/paired_packed_full \
+  --scene packed \
+  --object-set packed/train \
+  --num-grasps 60000 \
+  --ee-phi-span-deg 90
+```
+
+Then construct and train:
+
+```bash
+python scripts/construct_dataset.py \
+  data/raw/paired_packed_full \
+  data/datasets/paired_packed_full
+
+python scripts/train_vgn.py \
+  --dataset data/datasets/paired_packed_full \
+  --augment \
+  --epochs 30 \
+  --batch-size 32
+```
+
+Generated raw data, constructed datasets, training runs, and model checkpoints are intentionally ignored by Git:
+
+```text
+data/raw/
+data/datasets/
+data/runs/
+data/models/
+*.pth
+*.pt
+```
+
 This repository contains the implementation of the following publication:
 
 * M. Breyer, J. J. Chung, L. Ott, R. Siegwart, and J. Nieto. Volumetric Grasping Network: Real-time 6 DOF Grasp Detection in Clutter. _Conference on Robot Learning (CoRL 2020)_, 2020. [[pdf](http://arxiv.org/abs/2101.01132)][[video](https://youtu.be/FXjvFDcV6E0)]
