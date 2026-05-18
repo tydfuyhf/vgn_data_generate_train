@@ -205,7 +205,15 @@ def evaluate_grasp_point(sim, pos, normal, num_rotations=6):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("root", type=Path)
+    parser.add_argument(
+        "root",
+        type=Path,
+        help=(
+            "Output directory for raw grasp data. Save to the personal NAS "
+            "directory for persistence, e.g. "
+            "/data/allen516/vgn_data_generate_train/data/raw/packed_sanity."
+        ),
+    )
     parser.add_argument("--scene", type=str, choices=["pile", "packed"], default="pile")
     parser.add_argument("--object-set", type=str, default="blocks")
     parser.add_argument("--num-grasps", type=int, default=10000)

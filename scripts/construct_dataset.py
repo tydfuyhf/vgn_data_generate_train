@@ -41,7 +41,25 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("raw", type=Path)
-    parser.add_argument("dataset", type=Path)
+    parser.add_argument(
+        "raw",
+        type=Path,
+        help=(
+            "Path to raw data directory on NAS, e.g. "
+            "/data/allen516/vgn_data_generate_train/data/raw/packed_sanity."
+        ),
+    )
+    parser.add_argument(
+        "dataset",
+        type=Path,
+        help=(
+            "Output path for constructed dataset on NAS, e.g. "
+            "/data/allen516/vgn_data_generate_train/data/datasets/packed_sanity. "
+            "Before training, copy to /local_datasets/ on the GPU node, e.g. "
+            "tar -cvf /data/datasets/tarfiles/vgn_xxx.tar <dataset_path> "
+            "&& tar -xvf /data/datasets/tarfiles/vgn_xxx.tar -C "
+            "/local_datasets/."
+        ),
+    )
     args = parser.parse_args()
     main(args)

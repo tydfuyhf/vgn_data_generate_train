@@ -4,15 +4,15 @@ VGN is a 3D convolutional neural network for real-time 6 DOF grasp pose detectio
 
 ![overview](docs/overview.png)
 
-## RTX 3090 GPU Server Setup
+## Seraph RTX 3090 Setup
 
-This fork is prepared for ROS-free VGN data generation and training. ROS is not required when only running:
+This fork is prepared for ROS-free VGN data generation and training on the Seraph cluster. ROS is not required for:
 
 1. `scripts/generate_data.py`
 2. `scripts/construct_dataset.py`
 3. `scripts/train_vgn.py`
 
-Recommended server environment:
+Recommended environment:
 
 ```text
 GPU: NVIDIA RTX 3090
@@ -22,15 +22,62 @@ PyTorch: conda package with pytorch-cuda=11.8
 Open3D: 0.18.0
 ```
 
-Create the conda environment:
+Seraph storage layout for user `allen516`:
+
+```text
+/data/datasets/                         NAS, archive datasets only, single tar/zip files
+/data/allen516/                         NAS, personal code, conda envs, generated results
+/data/allen516/anaconda3/               conda installation location
+/data/allen516/vgn_data_generate_train/ this repository
+/home/allen516/                         config files only
+/local_datasets/                        GPU-node local disk for training dataloader input
+```
+
+Important rules:
+
+```text
+Do not run Python data generation or training on the master node.
+Use srun for interactive debugging and sbatch for long jobs.
+Do not point a training dataloader at /data/... paths.
+Copy constructed datasets to /local_datasets/ before training.
+/local_datasets/ is node-local and may be wiped after the job, so do not use it as the only copy of generated data.
+Do not install Anaconda under /home/allen516.
+Do not install packages into public Anaconda at /data/opt/anaconda3.
+```
+
+Project path design:
+
+```text
+/data/allen516/vgn_data_generate_train/
+  data/
+    raw/packed_sanity/       generated raw VGN data, preserved on NAS
+    datasets/packed_sanity/  constructed dataset, preserved on NAS
+    runs/                    TensorBoard logs and checkpoints, small NAS writes
+    urdfs/                   repo URDF assets, read-only during generation
+
+/local_datasets/vgn/datasets/packed_sanity/
+  copied dataset used by train_vgn.py dataloader
+```
+
+Why generated raw/dataset outputs are stored under `/data/allen516/...`:
+
+```text
+VGN data generation creates scene npz files and csv metadata that must be preserved.
+/local_datasets/ is temporary node-local storage and can disappear after the job.
+The main forbidden pattern is training-time dataloader reads from /data/... NAS paths.
+Training still reads from /local_datasets/ because dataloader reads from NAS are forbidden.
+```
+
+Create the conda environment after installing conda under `/data/allen516/anaconda3`:
 
 ```bash
+cd /data/allen516/vgn_data_generate_train
 conda env create -f environment.yml
 conda activate vgn
 pip install -e .
 ```
 
-Verify CUDA and core dependencies:
+Verify CUDA and core dependencies on a compute node:
 
 ```bash
 python - <<'PY'
@@ -44,20 +91,28 @@ print("pybullet ok")
 PY
 ```
 
-Generate a small sanity dataset first. By default this fork renders one top-like view and one EE-like oblique view per scene, then fuses both views into the TSDF during dataset construction.
+Enter a GPU node for sanity/debug runs:
 
 ```bash
-python scripts/generate_data.py data/raw/paired_packed_sanity \
+srun --gres=gpu:1 --cpus-per-gpu=8 --mem-per-gpu=32G -p debug_grad -w ariel-v7 --pty $SHELL
+conda activate vgn
+cd /data/allen516/vgn_data_generate_train
+```
+
+Generate a small sanity raw dataset. This fork renders one top-like view and one EE-like oblique view per scene by default.
+
+```bash
+python scripts/generate_data.py /data/allen516/vgn_data_generate_train/data/raw/packed_sanity \
   --scene packed \
   --object-set packed/train \
   --num-grasps 3000 \
   --ee-phi-span-deg 90
 ```
 
-If the actual wrist-camera scan yaw is known, prefer centering the EE-like yaw distribution around it:
+If the actual wrist-camera scan yaw is known, center the EE-like yaw distribution around it:
 
 ```bash
-python scripts/generate_data.py data/raw/paired_packed_sanity \
+python scripts/generate_data.py /data/allen516/vgn_data_generate_train/data/raw/packed_sanity \
   --scene packed \
   --object-set packed/train \
   --num-grasps 3000 \
@@ -65,46 +120,111 @@ python scripts/generate_data.py data/raw/paired_packed_sanity \
   --ee-phi-span-deg 90
 ```
 
-Construct the training dataset:
+Construct the dataset on NAS so it is preserved:
 
 ```bash
 python scripts/construct_dataset.py \
-  data/raw/paired_packed_sanity \
-  data/datasets/paired_packed_sanity
+  /data/allen516/vgn_data_generate_train/data/raw/packed_sanity \
+  /data/allen516/vgn_data_generate_train/data/datasets/packed_sanity
 ```
 
-Run a short training smoke test:
+Before training, copy the constructed dataset to GPU-node local disk:
+
+```bash
+mkdir -p /local_datasets/vgn/datasets
+mkdir -p /data/datasets/tarfiles
+tar -C /data/allen516/vgn_data_generate_train/data/datasets \
+  -cvf /data/datasets/tarfiles/vgn_packed_sanity.tar packed_sanity
+tar -C /local_datasets/vgn/datasets \
+  -xvf /data/datasets/tarfiles/vgn_packed_sanity.tar
+```
+
+Run a short training smoke test. The dataloader reads `/local_datasets/...`; logs/checkpoints go to the personal NAS directory.
 
 ```bash
 python scripts/train_vgn.py \
-  --dataset data/datasets/paired_packed_sanity \
+  --dataset /local_datasets/vgn/datasets/packed_sanity \
+  --logdir /data/allen516/vgn_data_generate_train/data/runs \
   --augment \
   --epochs 5 \
   --batch-size 32
 ```
 
-For a larger data generation run, use CPU parallelism with MPI. The RTX 3090 is mainly used during `train_vgn.py`; PyBullet data generation is CPU-bound.
+For long training runs, create `logs/` first and submit with `sbatch` while the desired conda environment is active:
 
 ```bash
-mpirun -np 8 python scripts/generate_data.py data/raw/paired_packed_full \
+mkdir -p /data/allen516/vgn_data_generate_train/logs
+conda activate vgn
+sbatch train.sh
+```
+
+Example `train.sh`:
+
+```bash
+#!/usr/bin/bash
+#SBATCH -J vgn-train
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-gpu=8
+#SBATCH --mem-per-gpu=32G
+#SBATCH -p batch_grad
+#SBATCH -w ariel-v7
+#SBATCH -t 1-0
+#SBATCH -o /data/allen516/vgn_data_generate_train/logs/slurm-%A.out
+
+pwd
+which python
+hostname
+
+python /data/allen516/vgn_data_generate_train/scripts/train_vgn.py \
+  --dataset /local_datasets/vgn/datasets/packed_sanity \
+  --logdir /data/allen516/vgn_data_generate_train/data/runs \
+  --augment \
+  --epochs 30 \
+  --batch-size 32
+
+exit 0
+```
+
+For a larger raw data generation run, use CPU parallelism with MPI from inside an allocated compute node. The RTX 3090 is mainly used during `train_vgn.py`; PyBullet generation is CPU-bound.
+
+```bash
+mpirun -np 8 python scripts/generate_data.py /data/allen516/vgn_data_generate_train/data/raw/packed_full \
   --scene packed \
   --object-set packed/train \
   --num-grasps 60000 \
   --ee-phi-span-deg 90
 ```
 
-Then construct and train:
+Then construct, copy to local disk, and train:
 
 ```bash
 python scripts/construct_dataset.py \
-  data/raw/paired_packed_full \
-  data/datasets/paired_packed_full
+  /data/allen516/vgn_data_generate_train/data/raw/packed_full \
+  /data/allen516/vgn_data_generate_train/data/datasets/packed_full
+
+mkdir -p /local_datasets/vgn/datasets
+mkdir -p /data/datasets/tarfiles
+tar -C /data/allen516/vgn_data_generate_train/data/datasets \
+  -cvf /data/datasets/tarfiles/vgn_packed_full.tar packed_full
+tar -C /local_datasets/vgn/datasets \
+  -xvf /data/datasets/tarfiles/vgn_packed_full.tar
 
 python scripts/train_vgn.py \
-  --dataset data/datasets/paired_packed_full \
+  --dataset /local_datasets/vgn/datasets/packed_full \
+  --logdir /data/allen516/vgn_data_generate_train/data/runs \
   --augment \
   --epochs 30 \
   --batch-size 32
+```
+
+Useful Seraph commands:
+
+```bash
+slurm-gres-viz -i
+squeue
+scancel $JOBID
+show-qos
+show-assoc
 ```
 
 Generated raw data, constructed datasets, training runs, and model checkpoints are intentionally ignored by Git:
@@ -182,13 +302,13 @@ Finally, download the data folder [here](https://drive.google.com/file/d/1MysYHv
 Generate raw synthetic grasping trials using the [pybullet](https://github.com/bulletphysics/bullet3) physics simulator.
 
 ```
-python scripts/generate_data.py data/raw/foo --scene pile --object-set blocks [--num-grasps=...] [--sim-gui]
+python scripts/generate_data.py /data/allen516/vgn_data_generate_train/data/raw/foo --scene pile --object-set blocks [--num-grasps=...] [--sim-gui]
 ```
 
 * `python scripts/generate_data.py -h` prints a list with all the options.
 * `mpirun -np <num-workers> python ...` will run multiple simulations in parallel.
 
-The script will create the following file structure within `data/raw/foo`:
+The script will create the following file structure within `/data/allen516/vgn_data_generate_train/data/raw/foo`:
 
 * `grasps.csv` contains the configuration, label, and associated scene for each grasp,
 * `scenes/<scene_id>.npz` contains the synthetic sensor data of each scene.
@@ -198,7 +318,7 @@ Clean the generated grasp configurations using the `data.ipynb` notebook.
 Finally, generate the voxel grids/grasp targets required to train VGN.
 
 ```
-python scripts/construct_dataset.py data/raw/foo data/datasets/foo
+python scripts/construct_dataset.py /data/allen516/vgn_data_generate_train/data/raw/foo /data/allen516/vgn_data_generate_train/data/datasets/foo
 ```
 
 * Samples of the dataset can be visualized with the `vis_sample.py` script and `vgn.rviz` configuration. The script includes the option to apply a random affine transform to the input/target pair to check the data augmentation procedure.
@@ -206,13 +326,13 @@ python scripts/construct_dataset.py data/raw/foo data/datasets/foo
 ## Network Training
 
 ```
-python scripts/train_vgn.py --dataset data/datasets/foo [--augment]
+python scripts/train_vgn.py --dataset /local_datasets/vgn/datasets/foo [--augment]
 ```
 
 Training and validation metrics are logged to TensorBoard and can be accessed with
 
 ```
-tensorboard --logdir data/runs
+tensorboard --logdir /data/allen516/vgn_data_generate_train/data/runs
 ```
 
 ## Simulated Grasping

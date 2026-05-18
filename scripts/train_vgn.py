@@ -204,8 +204,27 @@ def create_summary_writers(net, device, log_dir):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--net", default="conv")
-    parser.add_argument("--dataset", type=Path, required=True)
-    parser.add_argument("--logdir", type=Path, default="data/runs")
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        required=True,
+        help=(
+            "Path to constructed dataset. On Seraph, MUST be under "
+            "/local_datasets/ (not /data/...). Copy from NAS first, e.g. "
+            "tar -xvf /data/datasets/tarfiles/vgn_xxx.tar -C "
+            "/local_datasets/. Example: "
+            "/local_datasets/vgn/datasets/packed_sanity."
+        ),
+    )
+    parser.add_argument(
+        "--logdir",
+        type=Path,
+        default="/data/allen516/vgn_data_generate_train/data/runs",
+        help=(
+            "Directory for TensorBoard logs and checkpoints. Saved to the "
+            "NAS personal directory by default."
+        ),
+    )
     parser.add_argument("--description", type=str, default="")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=32)
