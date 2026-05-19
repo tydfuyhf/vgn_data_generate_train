@@ -76,7 +76,6 @@ def main(args):
         "vgn",
         n_saved=100,
         require_empty=True,
-        save_as_state_dict=True,
     )
     evaluator.add_event_handler(
         Events.EPOCH_COMPLETED(every=1), checkpoint_handler, {args.net: net}
