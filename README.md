@@ -43,6 +43,13 @@ New generation options:
 
 The VGN model, loss functions, optimizer, dataset loader, and training loop are kept close to the original implementation. The training script only adds clearer path help and a log directory default suitable for our server setup.
 
+Small compatibility fixes were added for current conda stacks:
+
+- `np.long` was replaced with `np.int64` for NumPy 1.24+.
+- The deprecated Ignite `ModelCheckpoint(save_as_state_dict=True)` argument was removed.
+- `environment.yml` pins `mkl<2025` and `intel-openmp<2025` to avoid known PyTorch/MKL symbol conflicts.
+- `scripts/filter_dataset_indices.py` can remove constructed grasp labels whose rounded voxel indices fall outside the 40^3 output grid.
+
 ### Packed vs pile
 
 This fork does not force packed-only training. Scene type is still selected with:
@@ -131,12 +138,24 @@ python scripts/construct_dataset.py \
   data/datasets/packed_sanity
 ```
 
+Optional safety filter for out-of-range voxel labels:
+
+```bash
+python scripts/filter_dataset_indices.py data/datasets/packed_sanity
+```
+
 For the full dataset:
 
 ```bash
 python scripts/construct_dataset.py \
   data/raw/packed_full \
   data/datasets/packed_full
+```
+
+Optional safety filter:
+
+```bash
+python scripts/filter_dataset_indices.py data/datasets/packed_full
 ```
 
 ### 3. Train VGN
