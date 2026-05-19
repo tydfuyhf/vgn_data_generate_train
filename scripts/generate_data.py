@@ -17,6 +17,7 @@ from vgn.utils.transform import Rotation, Transform
 OBJECT_COUNT_LAMBDA = 4
 MAX_VIEWPOINT_COUNT = 6
 GRASPS_PER_SCENE = 120
+MIN_GRASPS_PER_OBJECT = 12
 
 TOP_THETA_RANGE = (0.0, np.deg2rad(15.0))
 TOP_RADIUS_RANGE = (1.8, 2.4)
@@ -66,9 +67,11 @@ def main(args):
         # store the raw data
         scene_id = write_sensor_data(args.root, depth_imgs, extrinsics)
 
+        grasp_point_sampler = create_grasp_point_sampler(sim, pc, finger_depth, args)
+
         for _ in range(GRASPS_PER_SCENE):
             # sample and evaluate a grasp point
-            point, normal = sample_grasp_point(pc, finger_depth)
+            point, normal = grasp_point_sampler()
             grasp, label = evaluate_grasp_point(sim, point, normal)
 
             # store the sample
@@ -154,6 +157,96 @@ def sample_ee_phi(args):
     return np.random.uniform(center - span, center + span)
 
 
+def create_grasp_point_sampler(sim, point_cloud, finger_depth, args):
+    if args.sampling_policy == "global":
+        return lambda: sample_grasp_point(point_cloud, finger_depth)
+
+    object_clouds = crop_point_clouds_by_object(sim, point_cloud)
+    if not object_clouds:
+        print("No object-specific point clouds found, falling back to global sampling")
+        return lambda: sample_grasp_point(point_cloud, finger_depth)
+
+    return ObjectBalancedGraspPointSampler(
+        scene_cloud=point_cloud,
+        object_clouds=object_clouds,
+        finger_depth=finger_depth,
+        min_grasps_per_object=args.min_grasps_per_object,
+        total_grasps_per_scene=GRASPS_PER_SCENE,
+    )
+
+
+def crop_point_clouds_by_object(sim, point_cloud, margin=0.005, min_points=10):
+    object_clouds = []
+    for body in get_scene_object_bodies(sim):
+        lower, upper = sim.world.p.getAABB(body.uid)
+        lower = np.asarray(lower, dtype=np.float64) - margin
+        upper = np.asarray(upper, dtype=np.float64) + margin
+        lower[2] = max(lower[2], sim.lower[2])
+        if np.any(upper <= lower):
+            continue
+
+        bbox = o3d.geometry.AxisAlignedBoundingBox(lower, upper)
+        object_cloud = point_cloud.crop(bbox)
+        if len(object_cloud.points) >= min_points:
+            object_clouds.append(object_cloud)
+    return object_clouds
+
+
+def get_scene_object_bodies(sim):
+    object_bodies = []
+    for body in sim.world.bodies.values():
+        lower, upper = sim.world.p.getAABB(body.uid)
+        if upper[2] <= sim.lower[2]:
+            continue
+        object_bodies.append(body)
+    return object_bodies
+
+
+class ObjectBalancedGraspPointSampler(object):
+    def __init__(
+        self,
+        scene_cloud,
+        object_clouds,
+        finger_depth,
+        min_grasps_per_object,
+        total_grasps_per_scene,
+    ):
+        self.scene_cloud = scene_cloud
+        self.object_clouds = object_clouds
+        self.finger_depth = finger_depth
+        self.schedule = self.create_schedule(
+            len(object_clouds), min_grasps_per_object, total_grasps_per_scene
+        )
+        self.idx = 0
+
+    @staticmethod
+    def create_schedule(num_objects, min_grasps_per_object, total_grasps_per_scene):
+        guaranteed = []
+        if num_objects:
+            per_object = min(
+                min_grasps_per_object, total_grasps_per_scene // num_objects
+            )
+            for object_idx in range(num_objects):
+                guaranteed.extend([object_idx] * per_object)
+
+        remaining = total_grasps_per_scene - len(guaranteed)
+        global_samples = [-1] * max(0, remaining)
+        schedule = np.asarray(guaranteed + global_samples, dtype=np.int64)
+        np.random.shuffle(schedule)
+        return schedule
+
+    def __call__(self):
+        if self.idx >= len(self.schedule):
+            return sample_grasp_point(self.scene_cloud, self.finger_depth)
+
+        object_idx = self.schedule[self.idx]
+        self.idx += 1
+        if object_idx < 0:
+            return sample_grasp_point(self.scene_cloud, self.finger_depth)
+
+        return sample_grasp_point(self.object_clouds[object_idx], self.finger_depth)
+
+
 def sample_grasp_point(point_cloud, finger_depth, eps=0.1):
     points = np.asarray(point_cloud.points)
     normals = np.asarray(point_cloud.normals)
@@ -218,6 +311,19 @@ if __name__ == "__main__":
     parser.add_argument("--object-set", type=str, default="blocks")
     parser.add_argument("--num-grasps", type=int, default=10000)
     parser.add_argument("--sim-gui", action="store_true")
+    parser.add_argument(
+        "--sampling-policy",
+        type=str,
+        choices=["object-balanced", "global"],
+        default="object-balanced",
+        help="object-balanced guarantees a minimum number of grasp samples from each object AABB crop; global uses the original full-scene point cloud sampling",
+    )
+    parser.add_argument(
+        "--min-grasps-per-object",
+        type=int,
+        default=MIN_GRASPS_PER_OBJECT,
+        help="minimum grasp point samples per object when --sampling-policy object-balanced is used",
+    )
     parser.add_argument(
         "--view-policy",
         type=str,

@@ -43,6 +43,20 @@ New generation options:
 
 The VGN model, loss functions, optimizer, dataset loader, and training loop are kept close to the original implementation. The training script only adds clearer path help and a log directory default suitable for our server setup.
 
+### Object-balanced grasp point sampling
+
+Original VGN samples grasp points from the full reconstructed scene point cloud. That can bias samples toward large objects or broad surfaces. This fork adds an object-balanced sampling policy in `scripts/generate_data.py`.
+
+By default, each scene now crops the reconstructed point cloud by each PyBullet object AABB and guarantees a minimum number of grasp point samples per object. The remaining samples are drawn from the full scene point cloud.
+
+New sampling options:
+
+```bash
+--sampling-policy object-balanced   # default
+--sampling-policy global            # original full-scene sampling
+--min-grasps-per-object 12          # default minimum per object
+```
+
 ### Packed vs pile
 
 This fork does not force packed-only training. Scene type is still selected with:
@@ -99,6 +113,8 @@ python scripts/generate_data.py data/raw/packed_sanity \
   --scene packed \
   --object-set packed/train \
   --num-grasps 3000 \
+  --sampling-policy object-balanced \
+  --min-grasps-per-object 12 \
   --ee-phi-span-deg 90
 ```
 
@@ -109,6 +125,8 @@ python scripts/generate_data.py data/raw/packed_sanity \
   --scene packed \
   --object-set packed/train \
   --num-grasps 3000 \
+  --sampling-policy object-balanced \
+  --min-grasps-per-object 12 \
   --ee-phi-center-deg <actual_phi_deg> \
   --ee-phi-span-deg 90
 ```
@@ -120,6 +138,8 @@ mpirun -np 8 python scripts/generate_data.py data/raw/packed_full \
   --scene packed \
   --object-set packed/train \
   --num-grasps 60000 \
+  --sampling-policy object-balanced \
+  --min-grasps-per-object 12 \
   --ee-phi-span-deg 90
 ```
 
