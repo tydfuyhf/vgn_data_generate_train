@@ -7,7 +7,7 @@ shift || true
 python scripts/generate_data.py "${ROOT}" \
     --scene packed \
     --object-set packed/train \
-    --num-grasps "${NUM_GRASPS:-60000}" \
+    --num-grasps "${NUM_GRASPS:-240000}" \
     --sampling-policy object-balanced \
     --min-grasps-per-object "${MIN_GRASPS_PER_OBJECT:-12}" \
     --view-policy paired-3 \

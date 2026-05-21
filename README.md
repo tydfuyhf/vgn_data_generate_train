@@ -157,11 +157,14 @@ mpirun -np 8 python scripts/generate_data.py data/raw/packed_full \
 Min-grasp multi-view fuse runs:
 
 ```bash
+mpirun -np 8 bash scripts/generate_min_grasp_2view_fuse.sh \
+  data/raw/min_grasp_packed_2view_240k
+
 mpirun -np 8 bash scripts/generate_min_grasp_3view_fuse.sh \
-  data/raw/min_grasp_packed_3view_60000
+  data/raw/min_grasp_packed_3view_240k
 
 mpirun -np 8 bash scripts/generate_min_grasp_4view_fuse.sh \
-  data/raw/min_grasp_packed_4view_60000
+  data/raw/min_grasp_packed_4view_240k
 ```
 
 ### 2. Construct the training dataset

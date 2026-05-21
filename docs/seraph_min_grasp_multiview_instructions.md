@@ -5,8 +5,9 @@ commands or job scripts for the min-grasp multi-view experiments.
 
 ## Goal
 
-Generate and train two new min-grasp variants without changing code:
+Generate and train three min-grasp variants without changing code:
 
+- `2-view fuse`: one top-like view plus one EE-like view
 - `3-view fuse`: one top-like view plus two yaw-spread EE-like views
 - `4-view fuse`: one top-like view plus three yaw-spread EE-like views
 
@@ -105,8 +106,9 @@ Generation time is acceptable, so use a larger dataset than the original 60k.
 For clean comparison:
 
 ```text
-3-view packed 180k, train 50 epochs
-4-view packed 180k, train 50 epochs
+2-view packed 240k, train 50 epochs
+3-view packed 240k, train 50 epochs
+4-view packed 240k, train 50 epochs
 ```
 
 Keep these the same across both runs:
@@ -126,24 +128,31 @@ than random piles.
 Use the wrapper scripts. They allow overrides through environment variables and
 extra CLI arguments.
 
+2-view:
+
+```bash
+NUM_GRASPS=240000 mpirun -np 8 bash scripts/generate_min_grasp_2view_fuse.sh \
+  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_2view_240k
+```
+
 3-view:
 
 ```bash
-NUM_GRASPS=180000 mpirun -np 8 bash scripts/generate_min_grasp_3view_fuse.sh \
-  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_3view_180k
+NUM_GRASPS=240000 mpirun -np 8 bash scripts/generate_min_grasp_3view_fuse.sh \
+  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_3view_240k
 ```
 
 4-view:
 
 ```bash
-NUM_GRASPS=180000 mpirun -np 8 bash scripts/generate_min_grasp_4view_fuse.sh \
-  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_4view_180k
+NUM_GRASPS=240000 mpirun -np 8 bash scripts/generate_min_grasp_4view_fuse.sh \
+  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_4view_240k
 ```
 
 Available safe overrides:
 
 ```bash
-NUM_GRASPS=180000
+NUM_GRASPS=240000
 MIN_GRASPS_PER_OBJECT=12
 EE_PHI_SPAN_DEG=90
 ```
@@ -151,9 +160,9 @@ EE_PHI_SPAN_DEG=90
 Example with overrides:
 
 ```bash
-NUM_GRASPS=180000 MIN_GRASPS_PER_OBJECT=16 EE_PHI_SPAN_DEG=120 \
+NUM_GRASPS=240000 MIN_GRASPS_PER_OBJECT=16 EE_PHI_SPAN_DEG=120 \
 mpirun -np 8 bash scripts/generate_min_grasp_4view_fuse.sh \
-  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_4view_180k_mg16_span120
+  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_4view_240k_mg16_span120
 ```
 
 Avoid passing duplicate options after the wrapper if the wrapper already sets
@@ -168,26 +177,37 @@ them. Prefer environment variable overrides for:
 Constructed datasets should be made from the raw directories, then filtered for
 out-of-range voxel labels.
 
+2-view:
+
+```bash
+python scripts/construct_dataset.py \
+  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_2view_240k \
+  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_2view_240k
+
+python scripts/filter_dataset_indices.py \
+  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_2view_240k
+```
+
 3-view:
 
 ```bash
 python scripts/construct_dataset.py \
-  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_3view_180k \
-  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_3view_180k
+  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_3view_240k \
+  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_3view_240k
 
 python scripts/filter_dataset_indices.py \
-  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_3view_180k
+  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_3view_240k
 ```
 
 4-view:
 
 ```bash
 python scripts/construct_dataset.py \
-  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_4view_180k \
-  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_4view_180k
+  /data/allen516/vgn_generated/min_grasp/raw/min_grasp_packed_4view_240k \
+  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_4view_240k
 
 python scripts/filter_dataset_indices.py \
-  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_4view_180k
+  /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_4view_240k
 ```
 
 `construct_dataset.py` already fuses all saved views in each scene. No network
@@ -197,14 +217,34 @@ or dataset-loader change is required.
 
 Train with the same hyperparameters for fair comparison.
 
+Epochs are command-line configurable through `scripts/train_vgn.py --epochs`.
+Use `EPOCHS` so the run description stays consistent when overriding epochs.
+For example, set `EPOCHS=60` before the command to train for 60 epochs and name
+the run with `epoch60`.
+
+2-view:
+
+```bash
+EPOCHS=${EPOCHS:-50}
+python scripts/train_vgn.py \
+  --dataset /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_2view_240k \
+  --logdir /data/allen516/vgn_generated/runs \
+  --description "vgn_conv_min_grasp_packed_2view_240k_epoch${EPOCHS}_noaug" \
+  --epochs "${EPOCHS}" \
+  --batch-size 32 \
+  --lr 3e-4 \
+  --val-split 0.1
+```
+
 3-view:
 
 ```bash
+EPOCHS=${EPOCHS:-50}
 python scripts/train_vgn.py \
-  --dataset /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_3view_180k \
+  --dataset /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_3view_240k \
   --logdir /data/allen516/vgn_generated/runs \
-  --description vgn_conv_min_grasp_packed_3view_180k_epoch50_noaug \
-  --epochs 50 \
+  --description "vgn_conv_min_grasp_packed_3view_240k_epoch${EPOCHS}_noaug" \
+  --epochs "${EPOCHS}" \
   --batch-size 32 \
   --lr 3e-4 \
   --val-split 0.1
@@ -213,11 +253,12 @@ python scripts/train_vgn.py \
 4-view:
 
 ```bash
+EPOCHS=${EPOCHS:-50}
 python scripts/train_vgn.py \
-  --dataset /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_4view_180k \
+  --dataset /local_datasets/allen516/vgn_min_grasp/constructed/min_grasp_packed_4view_240k \
   --logdir /data/allen516/vgn_generated/runs \
-  --description vgn_conv_min_grasp_packed_4view_180k_epoch50_noaug \
-  --epochs 50 \
+  --description "vgn_conv_min_grasp_packed_4view_240k_epoch${EPOCHS}_noaug" \
+  --epochs "${EPOCHS}" \
   --batch-size 32 \
   --lr 3e-4 \
   --val-split 0.1
@@ -228,7 +269,7 @@ python scripts/train_vgn.py \
 - Do not modify the 2-view default path.
 - Do not change model architecture for these experiments.
 - Do not change `construct_dataset.py`; it already fuses all views in a scene.
-- Keep 3-view and 4-view runs identical except for view policy.
+- Keep 2-view, 3-view, and 4-view runs identical except for view policy.
 - Prefer packed-only first for demo alignment.
 - If creating an sbatch script, use environment variable overrides instead of
   editing Python code.

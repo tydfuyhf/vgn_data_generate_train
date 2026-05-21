@@ -10,6 +10,6 @@ python scripts/generate_data.py "${ROOT}" \
     --num-grasps "${NUM_GRASPS:-240000}" \
     --sampling-policy object-balanced \
     --min-grasps-per-object "${MIN_GRASPS_PER_OBJECT:-12}" \
-    --view-policy paired-4 \
+    --view-policy paired \
     --ee-phi-span-deg "${EE_PHI_SPAN_DEG:-90}" \
     "$@"
