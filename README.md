@@ -34,6 +34,8 @@ New generation options:
 
 ```bash
 --view-policy paired          # default, top-like + EE-like
+--view-policy paired-3        # top-like + two yaw-spread EE-like views
+--view-policy paired-4        # top-like + three yaw-spread EE-like views
 --view-policy legacy          # original random view behavior
 --ee-phi-center-deg <deg>     # optional EE yaw center
 --ee-phi-span-deg <deg>       # EE yaw span around the center, default 90
@@ -150,6 +152,16 @@ mpirun -np 8 python scripts/generate_data.py data/raw/packed_full \
   --sampling-policy object-balanced \
   --min-grasps-per-object 12 \
   --ee-phi-span-deg 90
+```
+
+Min-grasp multi-view fuse runs:
+
+```bash
+mpirun -np 8 bash scripts/generate_min_grasp_3view_fuse.sh \
+  data/raw/min_grasp_packed_3view_60000
+
+mpirun -np 8 bash scripts/generate_min_grasp_4view_fuse.sh \
+  data/raw/min_grasp_packed_4view_60000
 ```
 
 ### 2. Construct the training dataset

@@ -90,6 +90,10 @@ def setup_mpi():
 def render_images(sim, args):
     if args.view_policy == "paired":
         return render_paired_top_ee_images(sim, args)
+    elif args.view_policy == "paired-3":
+        return render_multi_view_top_ee_images(sim, args, view_count=3)
+    elif args.view_policy == "paired-4":
+        return render_multi_view_top_ee_images(sim, args, view_count=4)
     else:
         n = np.random.randint(MAX_VIEWPOINT_COUNT) + 1
         return render_legacy_images(sim, n)
@@ -134,6 +138,26 @@ def render_paired_top_ee_images(sim, args):
     return depth_imgs, extrinsics
 
 
+def render_multi_view_top_ee_images(sim, args, view_count):
+    height, width = sim.camera.intrinsic.height, sim.camera.intrinsic.width
+    origin = Transform(Rotation.identity(), np.r_[sim.size / 2, sim.size / 2, 0.0])
+
+    extrinsics = np.empty((view_count, 7), np.float32)
+    depth_imgs = np.empty((view_count, height, width), np.float32)
+
+    top_extrinsic = sample_top_like_extrinsic(sim, origin)
+    depth_imgs[0] = sim.camera.render(top_extrinsic)[1]
+    extrinsics[0] = top_extrinsic.to_list()
+
+    ee_phis = sample_multi_ee_phis(args, view_count - 1)
+    for i, phi in enumerate(ee_phis, start=1):
+        ee_extrinsic = sample_ee_like_extrinsic_at_phi(sim, origin, phi)
+        depth_imgs[i] = sim.camera.render(ee_extrinsic)[1]
+        extrinsics[i] = ee_extrinsic.to_list()
+
+    return depth_imgs, extrinsics
+
+
 def sample_top_like_extrinsic(sim, origin):
     r = np.random.uniform(*TOP_RADIUS_RANGE) * sim.size
     theta = np.random.uniform(*TOP_THETA_RANGE)
@@ -148,6 +172,12 @@ def sample_ee_like_extrinsic(sim, origin, args):
     return camera_on_sphere(origin, r, theta, phi)
 
 
+def sample_ee_like_extrinsic_at_phi(sim, origin, phi):
+    r = np.random.uniform(*EE_RADIUS_RANGE) * sim.size
+    theta = np.random.uniform(*EE_THETA_RANGE)
+    return camera_on_sphere(origin, r, theta, phi)
+
+
 def sample_ee_phi(args):
     if args.ee_phi_center_deg is None:
         return np.random.uniform(0.0, 2.0 * np.pi)
@@ -155,6 +185,22 @@ def sample_ee_phi(args):
     center = np.deg2rad(args.ee_phi_center_deg)
     span = np.deg2rad(args.ee_phi_span_deg)
     return np.random.uniform(center - span, center + span)
+
+
+def sample_multi_ee_phis(args, count):
+    if count <= 0:
+        return np.empty(0, dtype=np.float64)
+
+    if args.ee_phi_center_deg is None:
+        phase = np.random.uniform(0.0, 2.0 * np.pi)
+        return phase + np.arange(count, dtype=np.float64) * (2.0 * np.pi / count)
+
+    center = np.deg2rad(args.ee_phi_center_deg)
+    if count == 1:
+        return np.asarray([sample_ee_phi(args)], dtype=np.float64)
+
+    span = np.deg2rad(args.ee_phi_span_deg)
+    return np.linspace(center - span, center + span, count)
 
 
 def create_grasp_point_sampler(sim, point_cloud, finger_depth, args):
@@ -327,9 +373,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--view-policy",
         type=str,
-        choices=["paired", "legacy"],
+        choices=["paired", "paired-3", "paired-4", "legacy"],
         default="paired",
-        help="paired renders one top-like and one EE-like view per scene; legacy uses the original random top-like views",
+        help=(
+            "paired renders one top-like and one EE-like view per scene; "
+            "paired-3/paired-4 render one top-like view plus two/three "
+            "yaw-spread EE-like views; legacy uses the original random "
+            "top-like views"
+        ),
     )
     parser.add_argument(
         "--ee-phi-center-deg",
