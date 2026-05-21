@@ -18,6 +18,8 @@ def main(args):
 
     df = pd.read_csv(csv_path)
     idx = np.round(df[["i", "j", "k"]].to_numpy(dtype=np.float32)).astype(np.int64)
+    if args.augment_safe:
+        idx[:, 2] = args.resolution // 2
     valid = ((idx >= 0) & (idx < args.resolution)).all(axis=1)
     filtered = df.loc[valid].reset_index(drop=True)
 
@@ -54,6 +56,14 @@ if __name__ == "__main__":
         "--overwrite-backup",
         action="store_true",
         help=f"replace existing {BACKUP_NAME}",
+    )
+    parser.add_argument(
+        "--augment-safe",
+        action="store_true",
+        help=(
+            "Validate indices for training with --augment, where z is shifted "
+            "near the grid center. Do not use for no-augmentation training."
+        ),
     )
     args = parser.parse_args()
     main(args)

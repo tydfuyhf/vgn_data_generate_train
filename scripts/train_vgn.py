@@ -218,7 +218,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--logdir",
         type=Path,
-        default="/data/allen516/vgn_data_generate_train/data/runs",
+        default=Path("/data/allen516/vgn_data_generate_train/data/runs"),
         help=(
             "Directory for TensorBoard logs and checkpoints. Saved to the "
             "NAS personal directory by default."

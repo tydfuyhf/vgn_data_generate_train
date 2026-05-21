@@ -114,6 +114,10 @@ data/runs/
 data/models/
 *.pth
 *.pt
+*.tar.gz
+*.out
+*.err
 *.npz
+local_datasets/
 
 # Keep URDF assets under data/urdfs tracked.
